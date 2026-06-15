@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CCT 3D Spacetime Engine — v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Tajawal:wght@300;400;700;900&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --c-bg:       #000308;
+    --c-surface:  #050d1a;
+    --c-border:   #0f2040;
+    --c-green:    #00ffa3;
+    --c-cyan:     #00cfff;
+    --c-purple:   #bf6fff;
+    --c-white:    #e8f4ff;
+    --c-dim:      #2a4060;
+    --font-mono:  'Share Tech Mono', monospace;
+    --font-ar:    'Tajawal', sans-serif;
+  }
+
+  body {
+    background: var(--c-bg);
+    color: var(--c-white);
+    font-family: var(--font-ar);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    overflow-x: hidden;
+  }
+
+  /* ---------- scanline overlay ---------- */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 3px,
+      rgba(0,0,0,0.18) 3px,
+      rgba(0,0,0,0.18) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  .shell {
+    width: 100%;
+    max-width: 780px;
+    background: linear-gradient(160deg, #050e22 0%, #020810 60%, #030a18 100%);
+    border: 1px solid var(--c-border);
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px #0a1f3a,
+      0 40px 90px rgba(0,0,0,0.9),
+      inset 0 1px 0 rgba(0,200,255,0.06);
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--c-border);
+    background: rgba(0,8,20,0.6);
+  }
+  .topbar-logo {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--c-green);
+    letter-spacing: 2px;
+    text-shadow: 0 0 8px var(--c-green);
+  }
+  .topbar-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--c-white);
+    letter-spacing: 1px;
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--c-green);
+    box-shadow: 0 0 8px var(--c-green);
+    animation: pulse-dot 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* ---------- telemetry bar ---------- */
+  .telemetry {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--c-border);
+    background: rgba(0,5,15,0.5);
+  }
+  .tel-item {
+    flex: 1;
+    padding: 8px 14px;
+    border-right: 1px solid var(--c-border);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tel-item:last-child { border-right: none; }
+  .tel-label {
+    font-family: var(--font-mono);
+    font-size: 0.55rem;
+    color: var(--c-dim);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .tel-value {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--c-cyan);
+    text-shadow: 0 0 6px var(--c-cyan);
+    transition: color 0.4s;
+  }
+
+  /* ---------- canvas ---------- */
+  .canvas-wrap {
+    position: relative;
+    padding: 0;
+    background: #000205;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+  }
+
+  /* corner labels */
+  .corner-label {
+    position: absolute;
+    font-family: var(--font-mono);
+    font-size: 0.55rem;
+    color: var(--c-dim);
+    letter-spacing: 1px;
+    pointer-events: none;
+  }
+  .corner-label.tl { top: 10px; left: 14px; }
+  .corner-label.tr { top: 10px; right: 14px; }
+  .corner-label.bl { bottom: 10px; left: 14px; }
+  .corner-label.br { bottom: 10px; right: 14px; }
+
+  /* timeline ruler */
+  .ruler {
+    height: 24px;
+    border-top: 1px solid var(--c-border);
+    background: rgba(0,5,15,0.4);
+    position: relative;
+    overflow: hidden;
+  }
+  .ruler-line {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: var(--c-border);
+  }
+  .ruler-tick-label {
+    position: absolute;
+    bottom: 3px;
+    font-family: var(--font-mono);
+    font-size: 0.48rem;
+    color: var(--c-dim);
+    transform: translateX(-50%);
+  }
+
+  /* ---------- bottom panel ---------- */
+  .bottom-panel {
+    padding: 18px 22px 22px;
+    border-top: 1px solid var(--c-border);
+  }
+
+  .desc {
+    font-size: 0.78rem;
+    color: #4a6a8a;
+    line-height: 1.7;
+    margin-bottom: 16px;
+    text-align: right;
+  }
+
+  /* main CTA */
+  #startBtn {
+    display: block;
+    width: 100%;
+    padding: 16px;
+    background: transparent;
+    border: 1px solid var(--c-green);
+    color: var(--c-green);
+    font-family: var(--font-ar);
+    font-size: 0.9rem;
+    font-weight: 700;
+    border-radius: 10px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    text-shadow: 0 0 10px rgba(0,255,163,0.4);
+    box-shadow: 0 0 20px rgba(0,255,163,0.08), inset 0 0 20px rgba(0,255,163,0.04);
+    transition: all 0.4s;
+    position: relative;
+    overflow: hidden;
+  }
+  #startBtn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(0,255,163,0.07), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.6s;
+  }
+  #startBtn:hover {
+    background: rgba(0,255,163,0.06);
+    box-shadow: 0 0 35px rgba(0,255,163,0.2), inset 0 0 20px rgba(0,255,163,0.06);
+  }
+  #startBtn:hover::after { transform: translateX(100%); }
+
+  /* branch buttons */
+  .branch-grid {
+    display: none;
+    gap: 10px;
+  }
+  .branch-btn {
+    flex: 1;
+    padding: 14px 12px;
+    background: rgba(5,14,30,0.8);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.35s;
+    text-align: right;
+    position: relative;
+    overflow: hidden;
+  }
+  .branch-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .branch-btn:hover::before { opacity: 1; }
+  .branch-btn:hover { transform: translateY(-3px); }
+
+  .branch-btn .b-icon {
+    font-size: 1.3rem;
+    margin-bottom: 5px;
+  }
+  .branch-btn .b-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    display: block;
+    margin-bottom: 3px;
+  }
+  .branch-btn .b-sub {
+    font-size: 0.65rem;
+    opacity: 0.55;
+    font-family: var(--font-mono);
+  }
+
+  .bb-0 { border: 1px solid rgba(0,255,163,0.3); color: var(--c-green); }
+  .bb-0::before { background: radial-gradient(ellipse at top, rgba(0,255,163,0.06), transparent); }
+  .bb-0:hover { border-color: rgba(0,255,163,0.7); box-shadow: 0 0 20px rgba(0,255,163,0.15); }
+
+  .bb-1 { border: 1px solid rgba(0,207,255,0.3); color: var(--c-cyan); }
+  .bb-1::before { background: radial-gradient(ellipse at top, rgba(0,207,255,0.06), transparent); }
+  .bb-1:hover { border-color: rgba(0,207,255,0.7); box-shadow: 0 0 20px rgba(0,207,255,0.15); }
+
+  .bb-2 { border: 1px solid rgba(191,111,255,0.3); color: var(--c-purple); }
+  .bb-2::before { background: radial-gradient(ellipse at top, rgba(191,111,255,0.06), transparent); }
+  .bb-2:hover { border-color: rgba(191,111,255,0.7); box-shadow: 0 0 20px rgba(191,111,255,0.15); }
+
+  /* info box */
+  .info-box {
+    display: none;
+    margin-top: 14px;
+    padding: 16px 18px;
+    background: rgba(5,14,30,0.9);
+    border-radius: 10px;
+    font-size: 0.78rem;
+    line-height: 1.8;
+    color: #a0c4e0;
+    text-align: right;
+    animation: fadeUp 0.7s cubic-bezier(.16,1,.3,1) forwards;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .info-box strong { color: var(--c-white); }
+  .info-box .ib-label {
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    letter-spacing: 2px;
+    color: var(--c-green);
+    text-shadow: 0 0 8px var(--c-green);
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  /* replay btn */
+  #replayBtn {
+    display: none;
+    margin-top: 12px;
+    width: 100%;
+    padding: 11px;
+    background: transparent;
+    border: 1px solid var(--c-dim);
+    color: var(--c-dim);
+    font-family: var(--font-ar);
+    font-size: 0.8rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  #replayBtn:hover { border-color: var(--c-white); color: var(--c-white); }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- top bar -->
+  <div class="topbar">
+    <div class="topbar-logo">CCT ENGINE v2.0</div>
+    <div class="topbar-title">محاكي نسيج الزمكان الأسطواني</div>
+    <div class="status-dot"></div>
+  </div>
+
+  <!-- telemetry -->
+  <div class="telemetry">
+    <div class="tel-item">
+      <span class="tel-label">STATE</span>
+      <span class="tel-value" id="tel-state">STABLE</span>
+    </div>
+    <div class="tel-item">
+      <span class="tel-label">BRANCHES</span>
+      <span class="tel-value" id="tel-branches">01</span>
+    </div>
+    <div class="tel-item">
+      <span class="tel-label">Ψ-COHERENCE</span>
+      <span class="tel-value" id="tel-coherence">100%</span>
+    </div>
+    <div class="tel-item">
+      <span class="tel-label">t_C DELTA</span>
+      <span class="tel-value" id="tel-tc">0.000s</span>
+    </div>
+  </div>
+
+  <!-- canvas -->
+  <div class="canvas-wrap">
+    <canvas id="c" width="780" height="300"></canvas>
+    <span class="corner-label tl">ORIGIN_NODE</span>
+    <span class="corner-label tr">FUTURE_STATE</span>
+    <span class="corner-label bl" id="lbl-bl">τ=0</span>
+    <span class="corner-label br" id="lbl-br">Ω</span>
+  </div>
+
+  <!-- ruler -->
+  <div class="ruler" id="ruler"></div>
+
+  <!-- bottom -->
+  <div class="bottom-panel">
+    <p class="desc">
+      كل لحظة قرار تُشعّ منها أنابيب أسطوانية تمثّل المسارات الاحتمالية للوجود — تتمدد ببطء في نسيج الزمكان حتى لحظة الانهيار الواعي <strong>t_C</strong>، حين يتلاشى ما لم يُختَر ليبقى خط واحد يحمل الواقع.
+    </p>
+
+    <button id="startBtn" onclick="startSim()">◎ &nbsp; ابدأ التفكير — افتح حقل التفرع الأسطواني</button>
+
+    <div class="branch-grid" id="branchGrid">
+      <button class="branch-btn bb-0" onclick="collapse(0)">
+        <div class="b-icon">🎓</div>
+        <span class="b-title">المسار الأكاديمي</span>
+        <span class="b-sub">ACADEMIC / ISET</span>
+      </button>
+      <button class="branch-btn bb-1" onclick="collapse(1)">
+        <div class="b-icon">🚀</div>
+        <span class="b-title">شركة ناشئة</span>
+        <span class="b-sub">STARTUP / TECH</span>
+      </button>
+      <button class="branch-btn bb-2" onclick="collapse(2)">
+        <div class="b-icon">🌍</div>
+        <span class="b-title">السفر والانطلاق</span>
+        <span class="b-sub">VOYAGE / ABROAD</span>
+      </button>
+    </div>
+
+    <div class="info-box" id="infoBox"></div>
+    <button id="replayBtn" onclick="resetSim()">↺ &nbsp; إعادة المحاكاة</button>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  CCT 3D Spacetime Engine v2 — Enhanced Renderer
+// ═══════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const MID = H / 2;
+
+// ── state ──────────────────────────────────────────────────
+let state       = 'stable';
+let progress    = 0;
+let colProg     = 0;
+let selBranch   = null;
+let frame       = 0;
+let particles   = [];
+let energyPulses = [];
+let tcTimer     = 0;
+let tcRunning   = false;
+
+// ── branch definitions ─────────────────────────────────────
+const BRANCHES = [
+  { id:0, label:'ACADEMIC / ISET',   color:'#00ffa3', rgb:{r:0,  g:255,b:163}, yOff:-80, zD:1.2, curveK: 0.6 },
+  { id:1, label:'STARTUP / TECH',    color:'#00cfff', rgb:{r:0,  g:207,b:255}, yOff: 0,  zD:1.7, curveK: 0.5 },
+  { id:2, label:'VOYAGE / ABROAD',   color:'#bf6fff', rgb:{r:191,g:111,b:255}, yOff: 80, zD:0.85,curveK: 0.4 },
+];
+
+// ── ruler ──────────────────────────────────────────────────
+(function buildRuler() {
+  const ruler = document.getElementById('ruler');
+  const labels = ['t₀','t₁','t₂','t₃','t_C','t_Ω'];
+  labels.forEach((l, i) => {
+    const pct = i / (labels.length - 1) * 100;
+    const line = document.createElement('div');
+    line.className = 'ruler-line';
+    line.style.left = pct + '%';
+    ruler.appendChild(line);
+    const tick = document.createElement('div');
+    tick.className = 'ruler-tick-label';
+    tick.style.left = pct + '%';
+    tick.textContent = l;
+    ruler.appendChild(tick);
+  });
+})();
+
+// ── telemetry updater ──────────────────────────────────────
+function setTel(state, branches, coherence, tc) {
+  document.getElementById('tel-state').textContent     = state;
+  document.getElementById('tel-branches').textContent  = branches;
+  document.getElementById('tel-coherence').textContent = coherence;
+  document.getElementById('tel-tc').textContent        = tc;
+}
+
+// ── hex→rgb helper ─────────────────────────────────────────
+function hrx(hex) {
+  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return r ? {r:parseInt(r[1],16),g:parseInt(r[2],16),b:parseInt(r[3],16)} : {r:255,g:255,b:255};
+}
+
+// ── branch Y at parameter t ────────────────────────────────
+function branchY(b, t) {
+  // smooth bezier-like curve: ease out then stay flat
+  const eased = Math.min(1, t * 1.4);
+  const curve = eased < 1 ? Math.sin(eased * Math.PI / 2) : 1;
+  return MID + b.yOff * curve;
+}
+
+// ── cylinder tube ─────────────────────────────────────────
+function drawTube(points, radius, rgb, alpha) {
+  if (points.length < 2) return;
+  const r = rgb.r, g = rgb.g, b = rgb.b;
+
+  // shadow tube (dark base)
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.5;
+  ctx.strokeStyle = `rgba(${Math.floor(r*.1)},${Math.floor(g*.1)},${Math.floor(b*.1)},1)`;
+  ctx.lineWidth   = radius * 2.4;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  ctx.beginPath();
+  points.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+  ctx.stroke();
+  ctx.restore();
+
+  // core tube
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = `rgba(${r},${g},${b},1)`;
+  ctx.lineWidth   = radius * 2;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  ctx.beginPath();
+  points.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+  ctx.stroke();
+  ctx.restore();
+
+  // highlight stripe (top specular)
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.55;
+  ctx.strokeStyle = `rgba(255,255,255,1)`;
+  ctx.lineWidth   = radius * 0.55;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  const off = -radius * 0.55;
+  ctx.beginPath();
+  points.forEach((p,i) => {
+    const nx = p.ny || 0, ny = p.nx || -1; // normal approx
+    const hx = p.x + nx * off;
+    const hy = p.y + ny * off - radius * 0.5;
+    i===0 ? ctx.moveTo(hx,hy) : ctx.lineTo(hx,hy);
+  });
+  ctx.stroke();
+  ctx.restore();
+
+  // glow halo
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.18;
+  ctx.strokeStyle = `rgba(${r},${g},${b},1)`;
+  ctx.lineWidth   = radius * 5;
+  ctx.filter      = 'blur(6px)';
+  ctx.beginPath();
+  points.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+  ctx.stroke();
+  ctx.filter = 'none';
+  ctx.restore();
+}
+
+// ── build points array for a branch segment ───────────────
+function makeBranchPoints(b, xStart, xEnd) {
+  const pts = [];
+  for (let x = xStart; x <= xEnd; x += 3) {
+    const t = (x - xStart) / (xEnd - xStart);
+    pts.push({ x, y: branchY(b, t) });
+  }
+  return pts;
+}
+
+// ── main trunk points (with gentle sine wave) ─────────────
+function makeTrunkPoints(xStart, xEnd, amp=3) {
+  const pts = [];
+  for (let x = xStart; x <= xEnd; x += 4) {
+    const t  = (x - xStart) / W;
+    const y  = MID + Math.sin(x * 0.012 + frame * 0.015) * amp
+                   + Math.sin(x * 0.007 + frame * 0.008) * 1.5;
+    pts.push({ x, y });
+  }
+  return pts;
+}
+
+// ── spawn energy pulse on trunk ───────────────────────────
+function spawnPulse(color) {
+  energyPulses.push({ x: 0, speed: 2.5 + Math.random(), color, alpha: 0.9, size: 4 + Math.random()*3 });
+}
+
+// ── draw energy pulses ─────────────────────────────────────
+function drawPulses() {
+  energyPulses = energyPulses.filter(p => p.alpha > 0.01);
+  energyPulses.forEach(p => {
+    p.x += p.speed;
+    const y = MID + Math.sin(p.x * 0.012 + frame * 0.015) * 3;
+    const rgb = hrx(p.color);
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    const g = ctx.createRadialGradient(p.x,y,0,p.x,y,p.size*3);
+    g.addColorStop(0, `rgba(255,255,255,1)`);
+    g.addColorStop(0.3, `rgba(${rgb.r},${rgb.g},${rgb.b},0.9)`);
+    g.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(p.x, y, p.size*3, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+    if (p.x > W * 0.75) p.alpha -= 0.04;
+    else if (p.x > W) p.alpha = 0;
+  });
+}
+
+// ── draw particles ─────────────────────────────────────────
+function drawParticles() {
+  particles = particles.filter(p => p.a > 0.005);
+  particles.forEach(p => {
+    p.x  += p.vx;
+    p.y  += p.vy;
+    p.vx *= 0.97;
+    p.vy *= 0.97;
+    p.a  -= p.decay;
+    p.r  *= 0.985;
+    const rgb = hrx(p.color);
+    ctx.save();
+    ctx.globalAlpha = p.a;
+    ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},1)`;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur  = p.r * 3;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ── spawn branch disintegration particles ─────────────────
+function spawnBranchParticles(b) {
+  const rgb = hrx(b.color);
+  for (let i = 0; i < 80; i++) {
+    const t  = Math.random();
+    const px = W * 0.3 + t * W * 0.4;
+    const py = branchY(b, t);
+    particles.push({
+      x: px, y: py,
+      vx: (Math.random()-0.5) * 5,
+      vy: (Math.random()-0.5) * 3,
+      a: 0.8 + Math.random() * 0.2,
+      decay: 0.003 + Math.random() * 0.007,
+      r: 1.5 + Math.random() * 3,
+      color: b.color
+    });
+  }
+}
+
+// ── grid background ────────────────────────────────────────
+function drawGrid() {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(10,30,60,0.5)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) {
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 40) {
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── draw event markers ─────────────────────────────────────
+function drawMarker(x, label, color) {
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3,4]);
+  ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = color;
+  ctx.font = '500 9px "Share Tech Mono"';
+  ctx.fillText(label, x+4, 14);
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MAIN RENDER LOOP
+// ═══════════════════════════════════════════════════════════
+function render() {
+  frame++;
+
+  ctx.fillStyle = '#000308';
+  ctx.fillRect(0, 0, W, H);
+
+  drawGrid();
+
+  // tc timer
+  if (tcRunning) {
+    tcTimer += 0.016;
+    setTel(
+      state === 'branching' ? 'SUPERPOSITION' : state === 'collapsing' ? 'COLLAPSING' : state === 'restabilized' ? 'RESOLVED' : 'STABLE',
+      state === 'branching' || state === 'collapsing' ? '03' : '01',
+      state === 'branching' ? Math.floor((1 - progress * 0.6) * 100) + '%' :
+      state === 'collapsing' ? Math.floor((1 - colProg) * 100) + '%' : '100%',
+      tcTimer.toFixed(3) + 's'
+    );
+  }
+
+  // ── STABLE ──────────────────────────────────────────────
+  if (state === 'stable') {
+    const pts = makeTrunkPoints(0, W, 3);
+    drawTube(pts, 10, {r:200,g:220,b:255}, 0.85);
+    drawMarker(W * 0.15, 't₀', '#2a4060');
+    drawMarker(W * 0.85, 'Ω',  '#2a4060');
+    if (frame % 90 === 0) spawnPulse('#aaccff');
+    drawPulses();
+  }
+
+  // ── BRANCHING ───────────────────────────────────────────
+  if (state === 'branching') {
+    if (progress < 1) progress += 0.0018;
+    if (progress >= 0.99 && document.getElementById('branchGrid').style.display !== 'flex') {
+      document.getElementById('branchGrid').style.display = 'flex';
+    }
+
+    // trunk left
+    const leftPts = makeTrunkPoints(0, W * 0.28, 2.5);
+    drawTube(leftPts, 10, {r:200,g:220,b:255}, 0.9);
+
+    drawMarker(W * 0.28, 't_branch', '#1a3050');
+
+    // branches
+    BRANCHES.forEach(b => {
+      const xEnd   = W * 0.28 + (W * 0.42 * Math.min(progress, 1));
+      const pts    = makeBranchPoints(b, W * 0.28, xEnd);
+      const radius = 5.5 * b.zD;
+      const alpha  = 0.3 + progress * 0.65;
+      drawTube(pts, radius, b.rgb, alpha);
+
+      // label at tip
+      if (progress > 0.6) {
+        const tip = pts[pts.length-1];
+        const la  = (progress - 0.6) / 0.4;
+        ctx.save();
+        ctx.globalAlpha = la * 0.8;
+        ctx.fillStyle   = b.color;
+        ctx.font        = `600 ${Math.floor(9 * b.zD)}px "Share Tech Mono"`;
+        ctx.textAlign   = 'left';
+        ctx.fillText(b.label, tip.x + 8, tip.y + 3);
+        ctx.restore();
+      }
+
+      // floating quanta dots along branch
+      if (Math.random() < 0.06) {
+        const t   = Math.random() * progress;
+        const px  = W * 0.28 + t * W * 0.42;
+        const py  = branchY(b, t);
+        const rgb = b.rgb;
+        particles.push({
+          x: px, y: py,
+          vx:(Math.random()-0.5)*0.5,
+          vy:(Math.random()-0.5)*0.5,
+          a: 0.5, decay:0.012, r:1.5, color:b.color
+        });
+      }
+    });
+
+    if (frame % 50 === 0) spawnPulse('#aaccff');
+    drawPulses();
+    drawParticles();
+  }
+
+  // ── COLLAPSING ──────────────────────────────────────────
+  if (state === 'collapsing' || state === 'restabilized') {
+    if (colProg < 1) {
+      colProg += 0.005;
+    } else {
+      if (state !== 'restabilized') {
+        state = 'restabilized';
+        document.getElementById('replayBtn').style.display = 'block';
+        tcRunning = false;
+      }
+    }
+
+    // trunk left
+    const leftPts = makeTrunkPoints(0, W * 0.28, 2);
+    drawTube(leftPts, 10, {r:200,g:220,b:255}, 0.9);
+    drawMarker(W * 0.28, 't_C', '#00ffa355');
+    drawMarker(W * 0.75, 't_Ω',  '#1a3050');
+
+    // dissolving branches
+    BRANCHES.forEach(b => {
+      if (b.id === selBranch) return;
+      const a = Math.max(0, 1 - colProg * 2.2);
+      if (a <= 0) return;
+      const pts = makeBranchPoints(b, W * 0.28, W * 0.72);
+      drawTube(pts, Math.max(0.5, 5.5 * b.zD * (1 - colProg * 1.5)), b.rgb, a);
+    });
+
+    // winner tube collapsing back to centerline
+    const winner = BRANCHES[selBranch];
+    const shrinkFactor = Math.min(1, colProg * 1.2);
+    const wPts = [];
+    for (let x = W * 0.28; x <= W * 0.75; x += 3) {
+      const t   = (x - W * 0.28) / (W * 0.47);
+      const yCurr = branchY(winner, t);
+      const y   = yCurr + (MID - yCurr) * shrinkFactor;
+      wPts.push({ x, y });
+    }
+    const wRadius = (5.5 * winner.zD) + (12 - 5.5 * winner.zD) * shrinkFactor;
+    drawTube(wPts, wRadius, winner.rgb, 1.0);
+
+    // trunk right (fades in)
+    if (colProg > 0.5) {
+      const rightPts = makeTrunkPoints(W * 0.75, W, 2);
+      drawTube(rightPts, 10, winner.rgb, (colProg - 0.5) * 2);
+    }
+
+    drawParticles();
+    if (frame % 60 === 0 && colProg < 0.8) spawnPulse(winner.color);
+    drawPulses();
+  }
+
+  requestAnimationFrame(render);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CONTROLS
+// ═══════════════════════════════════════════════════════════
+function startSim() {
+  state = 'branching';
+  progress = 0;
+  tcRunning = true;
+  tcTimer = 0;
+  document.getElementById('startBtn').style.display = 'none';
+}
+
+function collapse(id) {
+  selBranch = id;
+  state     = 'collapsing';
+  colProg   = 0;
+  document.getElementById('branchGrid').style.display = 'none';
+
+  BRANCHES.forEach(b => { if (b.id !== id) spawnBranchParticles(b); });
+
+  const winner = BRANCHES[id];
+  const msgs = [
+    `تلاشت الأنابيب الاحتمالية ببطء مهيب، وامتصت النسيج الكوني لتُغذّي الأنبوب الفائز. المسار الأكاديمي <strong>ISET</strong> — خط زمكاني واحد، متين، غير مشتت، يحمل البنية المستقرة للواقع.`,
+    `انكسرت الأنابيب المتنافسة وتبعثرت جسيماتها في الفضاء الثلاثي الأبعاد. الشركة الناشئة <strong>STARTUP</strong> أصبحت محور الأنبوب الأسطواني الرئيسي — واقع يُبنى خطوة بخطوة.`,
+    `ذابت التشعبات في صمت كوني، وانتظم الأنبوب من جديد. مسار السفر <strong>VOYAGE</strong> يمتد نحو الأفق — الواقع يتشكّل من الحرية والانطلاق.`
+  ];
+
+  const box = document.getElementById('infoBox');
+  box.style.display = 'block';
+  box.innerHTML = `
+    <span class="ib-label">◉ COLLAPSE EVENT — t_C RESOLVED — BRANCH: ${winner.label}</span>
+    ${msgs[id]}
+  `;
+  box.style.borderLeft = `3px solid ${winner.color}`;
+}
+
+function resetSim() {
+  state = 'stable';
+  progress = 0;
+  colProg  = 0;
+  selBranch = null;
+  particles = [];
+  energyPulses = [];
+  frame = 0;
+  tcTimer = 0;
+  tcRunning = false;
+  document.getElementById('startBtn').style.display = 'block';
+  document.getElementById('branchGrid').style.display = 'none';
+  document.getElementById('infoBox').style.display = 'none';
+  document.getElementById('replayBtn').style.display = 'none';
+  setTel('STABLE','01','100%','0.000s');
+}
+
+// ── kick off ───────────────────────────────────────────────
+setTel('STABLE','01','100%','0.000s');
+render();
+</script>
+</body>
+</html>
